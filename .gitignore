@@ -14,5 +14,9 @@ bin/
 dist/
 build/
 coverage/
+coverage.out
+.cache/
 *.log
 
+# Local implementation checklist
+roadmap.md
