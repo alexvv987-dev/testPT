@@ -1,0 +1,18 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Build and runtime artifacts
+bin/
+dist/
+build/
+coverage/
+*.log
+
