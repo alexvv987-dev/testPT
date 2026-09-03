@@ -1,0 +1,10 @@
+.git
+.github
+.cache
+.env
+.env.*
+!.env.example
+coverage
+coverage.out
+roadmap.md
+*.log

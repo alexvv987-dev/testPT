@@ -1,0 +1,119 @@
+package shortener
+
+import (
+	"net/netip"
+	"net/url"
+	"strconv"
+	"strings"
+	"unicode"
+)
+
+// MaxURLLength is measured in bytes because the database column and HTTP
+// contract limit the original UTF-8 string, not its rune count.
+const MaxURLLength = 2048
+
+type Validator interface {
+	Validate(rawURL string) error
+}
+
+type URLValidator struct{}
+
+// Validate performs syntax and literal-address checks only; it deliberately
+// avoids DNS resolution so user input cannot trigger server-side network calls.
+func (URLValidator) Validate(rawURL string) error {
+	if rawURL == "" || len(rawURL) > MaxURLLength {
+		return ErrInvalidURL
+	}
+	for _, character := range rawURL {
+		if unicode.IsControl(character) {
+			return ErrInvalidURL
+		}
+	}
+
+	parsed, err := url.ParseRequestURI(rawURL)
+	if err != nil || !parsed.IsAbs() || parsed.Host == "" {
+		return ErrInvalidURL
+	}
+	if !strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https") {
+		return ErrInvalidURL
+	}
+	if parsed.User != nil {
+		return ErrInvalidURL
+	}
+
+	hostname := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	if hostname == "" || hostname == "localhost" || strings.HasSuffix(hostname, ".localhost") {
+		return ErrInvalidURL
+	}
+	if !isASCII(hostname) {
+		return ErrInvalidURL
+	}
+	if strings.Contains(hostname, "%") {
+		return ErrInvalidURL
+	}
+
+	if address, err := netip.ParseAddr(hostname); err == nil {
+		address = address.Unmap()
+		if address.IsLoopback() || address.IsPrivate() || address.IsLinkLocalUnicast() ||
+			address.IsLinkLocalMulticast() || address.IsUnspecified() || address.IsMulticast() {
+			return ErrInvalidURL
+		}
+	} else if looksLikeObfuscatedIP(hostname) {
+		// Reject legacy decimal and hexadecimal IP spellings that URL clients
+		// may interpret as addresses even though netip does not accept them.
+		return ErrInvalidURL
+	}
+
+	if parsed.Port() != "" {
+		port, err := strconv.Atoi(parsed.Port())
+		if err != nil || port < 1 || port > 65535 {
+			return ErrInvalidURL
+		}
+	}
+	return nil
+}
+
+func isASCII(value string) bool {
+	for _, character := range value {
+		if character > unicode.MaxASCII {
+			return false
+		}
+	}
+	return true
+}
+
+func looksLikeObfuscatedIP(hostname string) bool {
+	parts := strings.Split(strings.ToLower(hostname), ".")
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		if strings.HasPrefix(part, "0x") {
+			if len(part) == 2 || !allCharacters(part[2:], isHexDigit) {
+				return false
+			}
+			continue
+		}
+		if !allCharacters(part, isDecimalDigit) {
+			return false
+		}
+	}
+	return true
+}
+
+func allCharacters(value string, predicate func(rune) bool) bool {
+	for _, character := range value {
+		if !predicate(character) {
+			return false
+		}
+	}
+	return true
+}
+
+func isDecimalDigit(character rune) bool {
+	return character >= '0' && character <= '9'
+}
+
+func isHexDigit(character rune) bool {
+	return isDecimalDigit(character) || (character >= 'a' && character <= 'f')
+}

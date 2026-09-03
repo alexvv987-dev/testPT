@@ -14,5 +14,10 @@ bin/
 dist/
 build/
 coverage/
+coverage.out
+.cache/
 *.log
 
+# Local agent instructions and implementation checklist
+AGENTS.md
+roadmap.md
