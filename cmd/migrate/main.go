@@ -65,6 +65,8 @@ func grantRuntimePrivileges(database *sql.DB, role string) error {
 	statements := []string{
 		"REVOKE ALL PRIVILEGES ON TABLE links FROM " + quotedRole,
 		"GRANT SELECT, INSERT ON TABLE links TO " + quotedRole,
+		"REVOKE ALL PRIVILEGES ON FUNCTION public.purge_expired_links(TEXT, TEXT) FROM " + quotedRole,
+		"GRANT EXECUTE ON FUNCTION public.purge_expired_links(TEXT, TEXT) TO " + quotedRole,
 	}
 	for _, statement := range statements {
 		if _, err := database.Exec(statement); err != nil {

@@ -21,8 +21,17 @@ const (
 	defaultShutdown       = 10 * time.Second
 	defaultRateRPS        = 5.0
 	defaultRateBurst      = 10
+	defaultReadRateRPS    = 50.0
+	defaultReadRateBurst  = 100
+	defaultGlobalRateRPS  = 500.0
+	defaultGlobalBurst    = 1_000
+	defaultMaxConcurrent  = 100
+	defaultMaxConnections = 200
+	defaultLinkTTL        = 30 * 24 * time.Hour
+	defaultMaxLinks       = int64(100_000)
 	minRateRPS            = 0.001
 	maxRateRPS            = 10_000.0
+	maxLinkTTL            = 365 * 24 * time.Hour
 )
 
 type Config struct {
@@ -35,6 +44,14 @@ type Config struct {
 	Shutdown       time.Duration
 	RateLimitRPS   float64
 	RateLimitBurst int
+	ReadRateRPS    float64
+	ReadRateBurst  int
+	GlobalRateRPS  float64
+	GlobalBurst    int
+	MaxConcurrent  int
+	MaxConnections int
+	LinkTTL        time.Duration
+	MaxLinks       int64
 	LogLevel       string
 }
 
@@ -49,6 +66,14 @@ func Load() (Config, error) {
 		Shutdown:       defaultShutdown,
 		RateLimitRPS:   defaultRateRPS,
 		RateLimitBurst: defaultRateBurst,
+		ReadRateRPS:    defaultReadRateRPS,
+		ReadRateBurst:  defaultReadRateBurst,
+		GlobalRateRPS:  defaultGlobalRateRPS,
+		GlobalBurst:    defaultGlobalBurst,
+		MaxConcurrent:  defaultMaxConcurrent,
+		MaxConnections: defaultMaxConnections,
+		LinkTTL:        defaultLinkTTL,
+		MaxLinks:       defaultMaxLinks,
 		LogLevel:       strings.ToLower(envOrDefault("LOG_LEVEL", "info")),
 	}
 
@@ -69,6 +94,30 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if cfg.RateLimitBurst, err = envInt("RATE_LIMIT_BURST", cfg.RateLimitBurst); err != nil {
+		return Config{}, err
+	}
+	if cfg.ReadRateRPS, err = envFloat("READ_RATE_LIMIT_RPS", cfg.ReadRateRPS); err != nil {
+		return Config{}, err
+	}
+	if cfg.ReadRateBurst, err = envInt("READ_RATE_LIMIT_BURST", cfg.ReadRateBurst); err != nil {
+		return Config{}, err
+	}
+	if cfg.GlobalRateRPS, err = envFloat("GLOBAL_RATE_LIMIT_RPS", cfg.GlobalRateRPS); err != nil {
+		return Config{}, err
+	}
+	if cfg.GlobalBurst, err = envInt("GLOBAL_RATE_LIMIT_BURST", cfg.GlobalBurst); err != nil {
+		return Config{}, err
+	}
+	if cfg.MaxConcurrent, err = envInt("MAX_CONCURRENT_REQUESTS", cfg.MaxConcurrent); err != nil {
+		return Config{}, err
+	}
+	if cfg.MaxConnections, err = envInt("MAX_CONNECTIONS", cfg.MaxConnections); err != nil {
+		return Config{}, err
+	}
+	if cfg.LinkTTL, err = envDuration("LINK_TTL", cfg.LinkTTL); err != nil {
+		return Config{}, err
+	}
+	if cfg.MaxLinks, err = envInt64("MAX_LINKS", cfg.MaxLinks); err != nil {
 		return Config{}, err
 	}
 
@@ -104,6 +153,26 @@ func (c *Config) validate() error {
 	if math.IsNaN(c.RateLimitRPS) || math.IsInf(c.RateLimitRPS, 0) ||
 		c.RateLimitRPS < minRateRPS || c.RateLimitRPS > maxRateRPS || c.RateLimitBurst < 1 {
 		return errors.New("rate limit settings are outside the supported range")
+	}
+	if math.IsNaN(c.ReadRateRPS) || math.IsInf(c.ReadRateRPS, 0) ||
+		c.ReadRateRPS < minRateRPS || c.ReadRateRPS > maxRateRPS || c.ReadRateBurst < 1 {
+		return errors.New("read rate limit settings are outside the supported range")
+	}
+	if math.IsNaN(c.GlobalRateRPS) || math.IsInf(c.GlobalRateRPS, 0) ||
+		c.GlobalRateRPS < minRateRPS || c.GlobalRateRPS > maxRateRPS || c.GlobalBurst < 1 {
+		return errors.New("global rate limit settings are outside the supported range")
+	}
+	if c.MaxConcurrent < 1 || c.MaxConcurrent > 100_000 {
+		return errors.New("MAX_CONCURRENT_REQUESTS must be between 1 and 100000")
+	}
+	if c.MaxConnections < 1 || c.MaxConnections > 100_000 {
+		return errors.New("MAX_CONNECTIONS must be between 1 and 100000")
+	}
+	if c.LinkTTL <= 0 || c.LinkTTL > maxLinkTTL {
+		return errors.New("LINK_TTL must be positive and no greater than 365 days")
+	}
+	if c.MaxLinks < 1 {
+		return errors.New("MAX_LINKS must be positive")
 	}
 	switch c.LogLevel {
 	case "debug", "info", "warn", "error":
@@ -142,6 +211,18 @@ func envInt32(key string, fallback int32) (int32, error) {
 		return 0, fmt.Errorf("%s must be a 32-bit integer: %w", key, err)
 	}
 	return int32(parsed), nil
+}
+
+func envInt64(key string, fallback int64) (int64, error) {
+	value, ok := os.LookupEnv(key)
+	if !ok {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a 64-bit integer: %w", key, err)
+	}
+	return parsed, nil
 }
 
 func envFloat(key string, fallback float64) (float64, error) {

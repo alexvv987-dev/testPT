@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -78,20 +79,30 @@ func run() error {
 		return errors.New("database is unavailable")
 	}
 
-	repository := store.NewPostgres(pool, cfg.DBQueryTimeout)
+	repository := store.NewPostgres(pool, cfg.DBQueryTimeout, cfg.LinkTTL, cfg.MaxLinks)
 	service := shortener.NewService(repository, shortener.URLValidator{}, shortener.NewRandomGenerator())
-	limiter := httpapi.NewClientLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
-	defer limiter.Close()
+	postLimiter := httpapi.NewClientLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
+	defer postLimiter.Close()
+	readLimiter := httpapi.NewClientLimiter(cfg.ReadRateRPS, cfg.ReadRateBurst)
+	defer readLimiter.Close()
+	globalGuard := httpapi.NewGlobalGuard(cfg.GlobalRateRPS, cfg.GlobalBurst, cfg.MaxConcurrent)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.New(service, repository, cfg.PublicBaseURL, logger, limiter),
+		Handler:           httpapi.New(service, repository, cfg.PublicBaseURL, logger, postLimiter, readLimiter, globalGuard),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 * 1024,
 		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelError),
 	}
+	listener, err := net.Listen("tcp", cfg.HTTPAddr)
+	if err != nil {
+		return fmt.Errorf("listen on configured address: %w", err)
+	}
+	limitedListener := httpapi.LimitListener(listener, cfg.MaxConnections)
+	defer limitedListener.Close()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -99,7 +110,7 @@ func run() error {
 	serverErrors := make(chan error, 1)
 	go func() {
 		logger.Info("server started", "address", cfg.HTTPAddr)
-		serverErrors <- server.ListenAndServe()
+		serverErrors <- server.Serve(limitedListener)
 	}()
 
 	select {

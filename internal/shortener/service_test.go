@@ -36,6 +36,7 @@ type memoryRepository struct {
 	saveErr  error
 	findErr  error
 	forceHit int
+	capacity bool
 }
 
 func newMemoryRepository() *memoryRepository {
@@ -51,6 +52,9 @@ func (r *memoryRepository) Save(_ context.Context, code, originalURL string) (Sa
 	if r.forceHit > 0 {
 		r.forceHit--
 		return SaveResult{CodeCollision: true}, nil
+	}
+	if r.capacity {
+		return SaveResult{CapacityReached: true}, nil
 	}
 	if existing, ok := r.byURL[originalURL]; ok {
 		return SaveResult{Code: existing}, nil
@@ -183,6 +187,16 @@ func TestServiceErrors(t *testing.T) {
 				return err
 			},
 			want: ErrStorageUnavailable,
+		},
+		{
+			name: "capacity reached",
+			service: NewService(&memoryRepository{capacity: true}, fakeValidator{},
+				&sequenceGenerator{codes: []string{"abc123"}}),
+			call: func(service *Service) error {
+				_, err := service.Shorten(context.Background(), "https://example.com")
+				return err
+			},
+			want: ErrCapacityReached,
 		},
 		{
 			name: "storage find",

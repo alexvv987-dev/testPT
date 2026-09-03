@@ -37,9 +37,11 @@ func (p stubPinger) Ping(context.Context) error { return p.err }
 func testHandler(t *testing.T, service *stubService, pinger stubPinger, logOutput io.Writer) http.Handler {
 	t.Helper()
 	logger := slog.New(slog.NewJSONHandler(logOutput, nil))
-	limiter := NewClientLimiter(10_000, 1_000)
-	t.Cleanup(limiter.Close)
-	return New(service, pinger, "http://localhost:8080", logger, limiter)
+	postLimiter := NewClientLimiter(10_000, 1_000)
+	readLimiter := NewClientLimiter(10_000, 1_000)
+	t.Cleanup(postLimiter.Close)
+	t.Cleanup(readLimiter.Close)
+	return New(service, pinger, "http://localhost:8080", logger, postLimiter, readLimiter, NewGlobalGuard(10_000, 1_000, 1_000))
 }
 
 func performRequest(handler http.Handler, method, target, body, contentType string) *httptest.ResponseRecorder {
@@ -163,6 +165,14 @@ func TestShortenHandler(t *testing.T) {
 			wantStatus: http.StatusInternalServerError,
 			wantCode:   "internal_error",
 		},
+		{
+			name:       "capacity reached",
+			service:    &stubService{shortenErr: shortener.ErrCapacityReached},
+			body:       `{"url":"https://example.com"}`,
+			content:    "application/json",
+			wantStatus: http.StatusServiceUnavailable,
+			wantCode:   "capacity_reached",
+		},
 	}
 
 	for _, test := range tests {
@@ -232,6 +242,9 @@ func TestRedirectHandler(t *testing.T) {
 			}
 			if test.wantStatus == http.StatusFound && recorder.Header().Get("Location") != "https://example.com/path" {
 				t.Fatalf("Location = %q", recorder.Header().Get("Location"))
+			}
+			if recorder.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("Cache-Control = %q", recorder.Header().Get("Cache-Control"))
 			}
 			if test.wantCode != "" {
 				assertErrorCode(t, recorder, test.wantCode)

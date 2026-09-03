@@ -30,7 +30,6 @@ type Handler struct {
 	pinger        Pinger
 	publicBaseURL string
 	logger        *slog.Logger
-	limiter       *ClientLimiter
 }
 
 type shortenRequest struct {
@@ -95,22 +94,24 @@ type errorResponse struct {
 	Message string `json:"message"`
 }
 
-func New(service Service, pinger Pinger, publicBaseURL string, logger *slog.Logger, limiter *ClientLimiter) http.Handler {
+func New(service Service, pinger Pinger, publicBaseURL string, logger *slog.Logger, postLimiter, readLimiter *ClientLimiter, globalGuard *GlobalGuard) http.Handler {
 	handler := &Handler{
 		service:       service,
 		pinger:        pinger,
 		publicBaseURL: publicBaseURL,
 		logger:        logger,
-		limiter:       limiter,
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/shorten", limiter.Middleware(http.HandlerFunc(handler.shorten)))
+	mux.HandleFunc("/shorten", handler.shorten)
 	mux.HandleFunc("/healthz", handler.health)
 	mux.HandleFunc("/{code}", handler.redirect)
 	mux.HandleFunc("/", handler.notFound)
 
 	var result http.Handler = mux
+	result = globalGuard.Middleware(result)
+	result = postLimiter.Middleware(result)
+	result = readLimiter.MiddlewareAll(result)
 	result = recoverPanics(logger, result)
 	result = requestLogging(logger, result)
 	result = requestID(result)
@@ -151,6 +152,8 @@ func (h *Handler) shorten(writer http.ResponseWriter, request *http.Request) {
 			writeError(writer, http.StatusBadRequest, "invalid_url", "URL is invalid or not allowed")
 		case errors.Is(err, shortener.ErrStorageUnavailable):
 			writeError(writer, http.StatusServiceUnavailable, "service_unavailable", "service is temporarily unavailable")
+		case errors.Is(err, shortener.ErrCapacityReached):
+			writeError(writer, http.StatusServiceUnavailable, "capacity_reached", "link capacity is temporarily exhausted")
 		default:
 			writeError(writer, http.StatusInternalServerError, "internal_error", "internal server error")
 		}
@@ -167,6 +170,7 @@ func (h *Handler) shorten(writer http.ResponseWriter, request *http.Request) {
 }
 
 func (h *Handler) redirect(writer http.ResponseWriter, request *http.Request) {
+	writer.Header().Set("Cache-Control", "no-store")
 	if request.Method != http.MethodGet && request.Method != http.MethodHead {
 		methodNotAllowed(writer, http.MethodGet, http.MethodHead)
 		return

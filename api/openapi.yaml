@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: URL Shortener API
   version: 1.0.0
-  description: HTTP API for creating and resolving short URLs.
+  description: HTTP API for creating and resolving expiring short URLs. Short codes are public identifiers, not secrets.
 servers:
   - url: http://localhost:8080
 paths:
@@ -70,8 +70,14 @@ paths:
               schema:
                 type: string
                 format: uri
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
         "500":
@@ -87,10 +93,16 @@ paths:
               schema:
                 type: string
                 format: uri
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
         "404":
           $ref: "#/components/responses/NotFound"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
         "500":
           $ref: "#/components/responses/InternalError"
   /healthz:
@@ -111,6 +123,8 @@ paths:
                     const: ok
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
     head:
       operationId: healthHead
       summary: Check service and database readiness without a response body
@@ -119,6 +133,8 @@ paths:
           description: Service is ready.
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 components:
   schemas:
     ShortenRequest:
@@ -188,7 +204,7 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
     ServiceUnavailable:
-      description: PostgreSQL is unavailable.
+      description: The service is unavailable, busy, or has reached its configured active-link capacity.
       content:
         application/json:
           schema:

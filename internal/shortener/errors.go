@@ -9,4 +9,5 @@ var (
 	ErrStorageUnavailable = errors.New("storage unavailable")
 	ErrCodeGeneration     = errors.New("short code generation failed")
 	ErrCollisionExhausted = errors.New("short code collision attempts exhausted")
+	ErrCapacityReached    = errors.New("link capacity reached")
 )

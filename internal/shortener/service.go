@@ -9,9 +9,10 @@ import (
 const defaultCollisionAttempts = 10
 
 type SaveResult struct {
-	Code          string
-	Created       bool
-	CodeCollision bool
+	Code            string
+	Created         bool
+	CodeCollision   bool
+	CapacityReached bool
 }
 
 type Repository interface {
@@ -56,6 +57,9 @@ func (s *Service) Shorten(ctx context.Context, originalURL string) (Result, erro
 		}
 		if result.CodeCollision {
 			continue
+		}
+		if result.CapacityReached {
+			return Result{}, ErrCapacityReached
 		}
 		return Result{Code: result.Code, Created: result.Created}, nil
 	}
