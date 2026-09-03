@@ -18,5 +18,6 @@ coverage.out
 .cache/
 *.log
 
-# Local implementation checklist
+# Local agent instructions and implementation checklist
+AGENTS.md
 roadmap.md

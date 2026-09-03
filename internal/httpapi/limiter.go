@@ -26,6 +26,7 @@ type limiterEntry struct {
 	element  *list.Element
 }
 
+// ClientLimiter maintains bounded token buckets keyed by the direct peer address.
 type ClientLimiter struct {
 	mu         sync.Mutex
 	stopOnce   sync.Once
@@ -57,6 +58,7 @@ func NewClientLimiter(requestsPerSecond float64, burst int) *ClientLimiter {
 	return limiter
 }
 
+// Allow consumes one token for the direct peer. Proxy headers are intentionally ignored.
 func (l *ClientLimiter) Allow(remoteAddress string) bool {
 	clientIP := clientKey(remoteAddress)
 
@@ -95,6 +97,8 @@ func clientKey(remoteAddress string) string {
 	}
 	address = address.Unmap()
 	if address.Is6() {
+		// Group IPv6 clients by /64 so rotating interface identifiers cannot
+		// create an unbounded number of independent buckets.
 		return netip.PrefixFrom(address, 64).Masked().String()
 	}
 	return address.String()
@@ -164,6 +168,7 @@ func (l *ClientLimiter) MiddlewareAll(next http.Handler) http.Handler {
 	})
 }
 
+// GlobalGuard bounds aggregate request rate and in-flight handler execution.
 type GlobalGuard struct {
 	limiter    *rate.Limiter
 	retryAfter string

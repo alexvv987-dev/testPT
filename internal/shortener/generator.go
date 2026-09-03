@@ -7,6 +7,7 @@ import (
 )
 
 const (
+	// CodeLength is fixed by the public HTTP contract and database constraint.
 	CodeLength = 6
 	alphabet   = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 )
@@ -34,6 +35,7 @@ func (g *RandomGenerator) Generate() (string, error) {
 
 	result := make([]byte, CodeLength)
 	buffer := make([]byte, 1)
+	// Reject the incomplete tail of the byte range to avoid modulo bias.
 	const acceptanceLimit = byte(256 - (256 % len(alphabet)))
 
 	for index := 0; index < len(result); {

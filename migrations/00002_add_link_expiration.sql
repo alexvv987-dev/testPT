@@ -5,6 +5,10 @@ ALTER TABLE links
 CREATE INDEX links_expires_at_idx ON links (expires_at);
 
 -- +goose StatementBegin
+-- The runtime role has no DELETE privilege. This SECURITY DEFINER function
+-- exposes only bounded deletion of rows that are already expired. Rows that
+-- conflict with the current request are ordered first so stale unique keys do
+-- not prevent immediate recreation.
 CREATE FUNCTION public.purge_expired_links(p_target_url TEXT, p_target_code TEXT)
 RETURNS BIGINT
 LANGUAGE plpgsql

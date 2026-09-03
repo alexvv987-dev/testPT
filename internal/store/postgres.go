@@ -34,14 +34,21 @@ func (p *Postgres) Save(ctx context.Context, code, originalURL string) (shortene
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Every application instance uses the same transaction-scoped lock. This
+	// serializes cleanup, active-row counting, and insertion so MAX_LINKS cannot
+	// be exceeded by concurrent writers.
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, saveAdvisoryLockKey); err != nil {
 		return shortener.SaveResult{}, fmt.Errorf("lock link capacity: %w", err)
 	}
+	// The restricted function removes a bounded batch and prioritizes expired
+	// rows that would conflict with this URL or candidate code.
 	var removed int64
 	if err := tx.QueryRow(ctx, `SELECT public.purge_expired_links($1, $2)`, originalURL, code).Scan(&removed); err != nil {
 		return shortener.SaveResult{}, fmt.Errorf("purge expired links: %w", err)
 	}
 
+	// Deduplicate before checking capacity so an existing URL remains usable
+	// even when no space is available for a new link.
 	var storedCode string
 	const findByURLQuery = `SELECT code FROM links WHERE original_url = $1 AND expires_at > statement_timestamp()`
 	err = tx.QueryRow(ctx, findByURLQuery, originalURL).Scan(&storedCode)
@@ -60,6 +67,7 @@ func (p *Postgres) Save(ctx context.Context, code, originalURL string) (shortene
 		return commitSave(ctx, tx, shortener.SaveResult{CapacityReached: true})
 	}
 
+	// Unique constraints remain the final defense against URL and code races.
 	const insertQuery = `
 		INSERT INTO links (code, original_url, expires_at)
 		VALUES ($1, $2, statement_timestamp() + $3 * INTERVAL '1 microsecond')
@@ -91,6 +99,7 @@ func commitSave(ctx context.Context, tx pgx.Tx, result shortener.SaveResult) (sh
 	return result, nil
 }
 
+// FindURL resolves only non-expired links; expired codes are indistinguishable from misses.
 func (p *Postgres) FindURL(ctx context.Context, code string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.queryTimeout)
 	defer cancel()

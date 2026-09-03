@@ -8,6 +8,8 @@ import (
 	"unicode"
 )
 
+// MaxURLLength is measured in bytes because the database column and HTTP
+// contract limit the original UTF-8 string, not its rune count.
 const MaxURLLength = 2048
 
 type Validator interface {
@@ -16,6 +18,8 @@ type Validator interface {
 
 type URLValidator struct{}
 
+// Validate performs syntax and literal-address checks only; it deliberately
+// avoids DNS resolution so user input cannot trigger server-side network calls.
 func (URLValidator) Validate(rawURL string) error {
 	if rawURL == "" || len(rawURL) > MaxURLLength {
 		return ErrInvalidURL
@@ -55,6 +59,8 @@ func (URLValidator) Validate(rawURL string) error {
 			return ErrInvalidURL
 		}
 	} else if looksLikeObfuscatedIP(hostname) {
+		// Reject legacy decimal and hexadecimal IP spellings that URL clients
+		// may interpret as addresses even though netip does not accept them.
 		return ErrInvalidURL
 	}
 

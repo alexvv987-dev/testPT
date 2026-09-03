@@ -61,6 +61,7 @@ func requestLogging(logger *slog.Logger, next http.Handler) http.Handler {
 		if status == 0 {
 			status = http.StatusOK
 		}
+		// Log the registered route pattern, never the raw path or query string.
 		route := request.Pattern
 		if route == "" {
 			route = "unmatched"

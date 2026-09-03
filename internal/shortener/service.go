@@ -15,6 +15,7 @@ type SaveResult struct {
 	CapacityReached bool
 }
 
+// Repository is defined at the consumer boundary to keep the service testable.
 type Repository interface {
 	Save(context.Context, string, string) (SaveResult, error)
 	FindURL(context.Context, string) (string, error)

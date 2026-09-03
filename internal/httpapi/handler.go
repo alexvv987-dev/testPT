@@ -109,6 +109,8 @@ func New(service Service, pinger Pinger, publicBaseURL string, logger *slog.Logg
 	mux.HandleFunc("/", handler.notFound)
 
 	var result http.Handler = mux
+	// Wrapping is intentionally inside-out. At runtime cheap per-client checks
+	// execute before the shared global budget and concurrency slots are consumed.
 	result = globalGuard.Middleware(result)
 	result = postLimiter.Middleware(result)
 	result = readLimiter.MiddlewareAll(result)
